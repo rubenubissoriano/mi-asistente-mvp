@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asistente Técnico Personalizado</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; background-color: #f4f7f6; }
+        .chat-container { flex-grow: 1; display: flex; flex-direction: column; max-width: 600px; margin: 20px auto; background-color: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; }
+        .chat-header { background-color: #007bff; color: white; padding: 15px; text-align: center; font-size: 1.2em; border-bottom: 1px solid #0056b3; }
+        .chat-messages { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
+        .message { margin-bottom: 15px; padding: 10px 15px; border-radius: 20px; max-width: 80%; word-wrap: break-word; }
+        .message.user { background-color: #dcf8c6; align-self: flex-end; text-align: right; border-bottom-right-radius: 5px; }
+        .message.bot { background-color: #e0e0e0; align-self: flex-start; border-bottom-left-radius: 5px; }
+        .chat-input { display: flex; padding: 15px; border-top: 1px solid #eee; background-color: #f9f9f9; }
+        .chat-input input { flex-grow: 1; padding: 10px 15px; border: 1px solid #ddd; border-radius: 20px; margin-right: 10px; font-size: 1em; }
+        .chat-input button { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-size: 1em; transition: background-color 0.2s; }
+        .chat-input button:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header" id="chatHeader">Asistente Técnico</div>
+        <div class="chat-messages" id="chatMessages"></div>
+        <div class="chat-input">
+            <input type="text" id="userInput" placeholder="Escribe tu pregunta...">
+            <button id="sendButton">Enviar</button>
+        </div>
+    </div>
+
+    <script>
+        const MAKE_WEBHOOK_URL = 'https://hook.eu2.make.com/1g8kysq3u7m3pgnqs8m0ree4ocpz3svm'; // ¡IMPORTANTE! Reemplaza esto con tu Webhook de Make.com
+        const chatHeader = document.getElementById('chatHeader');
+        const chatMessages = document.getElementById('chatMessages');
+        const userInput = document.getElementById('userInput');
+        const sendButton = document.getElementById('sendButton');
+
+        // Función para obtener parámetros de la URL (para ID_Empresa)
+        function getUrlParameter(name) {
+            name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+            var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+            var results = regex.exec(location.search);
+            return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+        }
+
+        const empresaId = getUrlParameter('empresa_id'); // Leer el ID de la empresa de la URL
+        let currentChatId = null; // Para mantener un identificador de conversación
+
+        // Función para añadir mensajes al chat
+        function addMessage(text, sender) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', sender);
+            messageDiv.textContent = text;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight; // Scroll automático al final
+        }
+
+        // Función para enviar el mensaje
+        async function sendMessage() {
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            addMessage(message, 'user');
+            userInput.value = ''; // Limpiar el campo de entrada
+
+            // Mostrar mensaje de carga
+            addMessage('El asistente está pensando...', 'bot');
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            try {
+                const response = await fetch(MAKE_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        empresa_id: empresaId,
+                        chat_id: currentChatId // Enviar el ID de conversación (si existe)
+                    })
+                });
+
+                const data = await response.json();
+
+                // Eliminar mensaje de carga
+                const thinkingMessage = chatMessages.querySelector('.message.bot:last-child');
+                if (thinkingMessage && thinkingMessage.textContent === 'El asistente está pensando...') {
+                    chatMessages.removeChild(thinkingMessage);
+                }
+
+                if (data && data.reply) {
+                    addMessage(data.reply, 'bot');
+                    // Si recibimos un chat_id, lo guardamos para futuras interacciones
+                    if (data.chat_id && !currentChatId) {
+                        currentChatId = data.chat_id;
+                    }
+                    // Actualizar el nombre del asistente si Make lo envía
+                    if (data.assistant_name) {
+                        chatHeader.textContent = `Asistente Técnico de ${data.company_name || ''} - ${data.assistant_name}`;
+                    } else if (data.company_name) {
+                        chatHeader.textContent = `Asistente Técnico de ${data.company_name}`;
+                    }
+                } else {
+                    addMessage("Lo siento, no pude obtener una respuesta del asistente.", 'bot');
+                }
+            } catch (error) {
+                console.error('Error al comunicarse con Make.com:', error);
+                // Eliminar mensaje de carga
+                const thinkingMessage = chatMessages.querySelector('.message.bot:last-child');
+                if (thinkingMessage && thinkingMessage.textContent === 'El asistente está pensando...') {
+                    chatMessages.removeChild(thinkingMessage);
+                }
+                addMessage("Hubo un error al conectar con el asistente. Por favor, inténtalo de nuevo más tarde.", 'bot');
+            }
+        }
+
+        // Eventos para enviar con botón o Enter
+        sendButton.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Mensaje de bienvenida inicial (opcional)
+        document.addEventListener('DOMContentLoaded', () => {
+            if (empresaId) {
+                // Si hay ID de empresa, podríamos personalizar el saludo inicial
+                // Esto se hará realmente cuando el primer mensaje vaya a Make.com y Make.com sepa qué empresa es
+                addMessage("Hola. Soy tu asistente técnico de chaveteros. ¿En qué puedo ayudarte?", 'bot');
+            } else {
+                addMessage("Bienvenido. Para una experiencia personalizada, asegúrate de acceder a través del enlace que te hemos proporcionado.", 'bot');
+            }
+        });
+
+    </script>
+</body>
+</html>
